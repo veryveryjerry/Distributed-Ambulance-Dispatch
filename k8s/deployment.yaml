@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# k8s/deployment.yaml — Ambulance Node StatefulSet
+#
+# A StatefulSet is used instead of a plain Deployment because the Bully
+# Algorithm requires every pod to have a stable, unique identity (ordinal).
+# Pod names follow the pattern  ambulance-0, ambulance-1, ambulance-2.
+# NODE_ID is derived inside the container from the pod hostname
+# (ordinal + 1), so ambulance-0 → ID 1, ambulance-1 → ID 2, etc.
+#
+# Liveness Probe (DevOps CO6 — Self-Healing)
+# ------------------------------------------
+# Kubernetes hits GET /health on each pod every 15 seconds.  If a pod
+# stops responding, Kubernetes automatically restarts it, demonstrating
+# self-healing behaviour.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ambulance
+  labels:
+    app: ambulance
+spec:
+  serviceName: ambulance-headless   # must match the headless Service name
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ambulance
+  template:
+    metadata:
+      labels:
+        app: ambulance
+    spec:
+      containers:
+        - name: ambulance-node
+          # Replace with your actual Docker Hub image, e.g.:
+          #   docker.io/<DOCKERHUB_USERNAME>/ambulance-node:latest
+          image: ambulance-node:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          env:
+            # K8S_MODE=true tells the app to derive NODE_ID and PEERS
+            # automatically from the StatefulSet pod hostname.
+            - name: K8S_MODE
+              value: "true"
+            - name: K8S_REPLICAS
+              value: "3"
+            - name: K8S_SERVICE_NAME
+              value: "ambulance-headless"
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GRPC_PORT
+              value: "50051"
+            - name: HTTP_PORT
+              value: "8080"
+            - name: HOSPITAL_URL
+              value: "http://hospital-service:5000"
+
+          # ── Liveness Probe (self-healing) ─────────────────────────────────
+          # If the /health endpoint stops returning 200, Kubernetes will
+          # automatically restart the container (DevOps CO6).
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # ── Readiness Probe ────────────────────────────────────────────────
+          # Keeps the pod out of the Service endpoints until it is ready to
+          # participate in elections and handle requests.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

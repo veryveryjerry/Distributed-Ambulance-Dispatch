@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package ambulance;
+
+// AmbulanceService handles all inter-node gRPC communication:
+//   - Bully Algorithm election messages
+//   - Coordinator heartbeats
+//   - Ambulance dispatch orders
+service AmbulanceService {
+  // Sent by a node initiating an election to all nodes with higher IDs.
+  // A higher-ID node responds with OK and starts its own election.
+  rpc SendElection(ElectionMessage) returns (ElectionResponse);
+
+  // Broadcast by the winning node to announce itself as the new coordinator.
+  rpc AnnounceCoordinator(CoordinatorMessage) returns (CoordinatorResponse);
+
+  // Periodic ping sent by the coordinator so followers know it is alive.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Sent by the coordinator to the chosen ambulance, ordering it to respond.
+  rpc Dispatch(DispatchRequest) returns (DispatchResponse);
+}
+
+// ── Election ──────────────────────────────────────────────────────────────────
+
+message ElectionMessage {
+  int32 sender_id = 1;
+}
+
+message ElectionResponse {
+  // "OK"  – responding node has higher ID and will take over the election.
+  // "NO"  – responding node has lower ID (should not happen in normal Bully).
+  string status = 1;
+}
+
+// ── Coordinator announcement ──────────────────────────────────────────────────
+
+message CoordinatorMessage {
+  int32 coordinator_id = 1;
+}
+
+message CoordinatorResponse {
+  string status = 1;
+}
+
+// ── Heartbeat ─────────────────────────────────────────────────────────────────
+
+message HeartbeatRequest {
+  int32 sender_id = 1;
+}
+
+message HeartbeatResponse {
+  string status = 1;
+}
+
+// ── Dispatch ──────────────────────────────────────────────────────────────────
+
+message DispatchRequest {
+  string patient_name  = 1;
+  string location      = 2;
+  int32  coordinator_id = 3;
+}
+
+message DispatchResponse {
+  // "DISPATCHED" – ambulance acknowledged and is on its way.
+  string status = 1;
+}

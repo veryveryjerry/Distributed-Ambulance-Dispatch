@@ -1,0 +1,97 @@
+---
+# ansible/setup.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Ansible Playbook — Ambulance Dispatch System Bootstrap
+#
+# Tasks performed on EVERY host
+# ──────────────────────────────
+#   1. Install prerequisite system packages.
+#   2. Add the official Docker GPG key and APT repository.
+#   3. Install Docker CE, CLI, containerd, and Docker Compose plugin.
+#   4. Enable and start the Docker service.
+#   5. Add the ansible_user to the docker group (no-sudo docker commands).
+#   6. Create the "ambulance" Docker network (idempotent).
+#
+# Usage
+# ─────
+#   ansible-playbook -i inventory.ini setup.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Bootstrap Docker and the ambulance network on all hosts
+  hosts: all
+  become: true   # Run as root via sudo
+
+  vars:
+    docker_network_name: ambulance
+    docker_apt_key_url: https://download.docker.com/linux/ubuntu/gpg
+    docker_apt_repo: >-
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+
+  tasks:
+
+    # ── 1. System prerequisites ───────────────────────────────────────────────
+    - name: Install prerequisite packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+        update_cache: true
+
+    # ── 2. Docker GPG key ─────────────────────────────────────────────────────
+    - name: Create /etc/apt/keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download Docker GPG key
+      ansible.builtin.get_url:
+        url: "{{ docker_apt_key_url }}"
+        dest: /etc/apt/keyrings/docker.gpg
+        mode: "0644"
+
+    # ── 3. Docker APT repository ──────────────────────────────────────────────
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "{{ docker_apt_repo }}"
+        state: present
+        filename: docker
+
+    # ── 4. Install Docker ─────────────────────────────────────────────────────
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    # ── 5. Enable and start Docker service ───────────────────────────────────
+    - name: Enable and start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    # ── 6. Add remote user to docker group ───────────────────────────────────
+    - name: Add {{ ansible_user }} to the docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    # ── 7. Create the "ambulance" Docker network ──────────────────────────────
+    - name: Ensure the "{{ docker_network_name }}" Docker network exists
+      community.docker.docker_network:
+        name: "{{ docker_network_name }}"
+        state: present
+        driver: bridge
