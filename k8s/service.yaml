@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# k8s/service.yaml — Kubernetes Services for the Ambulance System
+#
+# Three Service objects are defined:
+#
+#   ambulance-headless   (ClusterIP: None)
+#       Headless service used for stable DNS records so StatefulSet pods can
+#       reach each other by name  ambulance-<n>.ambulance-headless.<ns>.svc
+#
+#   ambulance-service    (ClusterIP)
+#       Internal load-balancer that routes the HTTP /patient endpoint to
+#       whichever pod is currently the coordinator.  (In production you would
+#       add a sidecar or external mechanism to route only to the coordinator.)
+#
+#   hospital-service     (ClusterIP)
+#       Exposes the Hospital Flask API inside the cluster so ambulance nodes
+#       can POST dispatch confirmations to it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1. Headless Service — stable DNS for Bully Algorithm peer discovery ───────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ambulance-headless
+  labels:
+    app: ambulance
+spec:
+  clusterIP: None          # Makes this a headless service
+  selector:
+    app: ambulance
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+      protocol: TCP
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# ── 2. ClusterIP Service — internal HTTP access to ambulance nodes ────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ambulance-service
+  labels:
+    app: ambulance
+spec:
+  type: ClusterIP
+  selector:
+    app: ambulance
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+
+# ── 3. Hospital Service — ClusterIP for ambulance → hospital notifications ────
+apiVersion: v1
+kind: Service
+metadata:
+  name: hospital-service
+  labels:
+    app: hospital
+spec:
+  type: ClusterIP
+  selector:
+    app: hospital
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP

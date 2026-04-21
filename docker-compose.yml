@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — Distributed Ambulance Dispatch System
+#
+# Services
+# --------
+#   ambulance1  – Ambulance Node, ID=1 (lowest → dispatched first)
+#   ambulance2  – Ambulance Node, ID=2
+#   ambulance3  – Ambulance Node, ID=3 (highest → likely first coordinator)
+#   hospital    – Hospital REST API
+#
+# Usage
+# -----
+#   docker compose up --build
+#
+# Patient request example (after coordinator elected, typically ambulance3):
+#   curl -X POST http://localhost:8083/patient \
+#        -H "Content-Type: application/json" \
+#        -d '{"patient_name":"Alice","location":"123 Main St"}'
+#
+# View hospital dispatch log:
+#   curl http://localhost:5000/dispatches
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+networks:
+  ambulance:
+    driver: bridge
+
+services:
+
+  # ── Ambulance Node 1 ────────────────────────────────────────────────────────
+  ambulance1:
+    build:
+      context: ./ambulance_node
+    container_name: ambulance1
+    networks:
+      - ambulance
+    environment:
+      NODE_ID: "1"
+      GRPC_PORT: "50051"
+      HTTP_PORT: "8080"
+      PEERS: "2=ambulance2:50051,3=ambulance3:50051"
+      HOSPITAL_URL: "http://hospital:5000"
+    ports:
+      - "8081:8080"   # Host 8081 → container HTTP
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Ambulance Node 2 ────────────────────────────────────────────────────────
+  ambulance2:
+    build:
+      context: ./ambulance_node
+    container_name: ambulance2
+    networks:
+      - ambulance
+    environment:
+      NODE_ID: "2"
+      GRPC_PORT: "50051"
+      HTTP_PORT: "8080"
+      PEERS: "1=ambulance1:50051,3=ambulance3:50051"
+      HOSPITAL_URL: "http://hospital:5000"
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Ambulance Node 3 ────────────────────────────────────────────────────────
+  ambulance3:
+    build:
+      context: ./ambulance_node
+    container_name: ambulance3
+    networks:
+      - ambulance
+    environment:
+      NODE_ID: "3"
+      GRPC_PORT: "50051"
+      HTTP_PORT: "8080"
+      PEERS: "1=ambulance1:50051,2=ambulance2:50051"
+      HOSPITAL_URL: "http://hospital:5000"
+    ports:
+      - "8083:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Hospital Service ────────────────────────────────────────────────────────
+  hospital:
+    build:
+      context: ./hospital_service
+    container_name: hospital
+    networks:
+      - ambulance
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
